@@ -1,0 +1,69 @@
+:root {
+    --primary-color: #004d40; /* Deep Green */
+    --secondary-color: #ffc107; /* Gold */
+    --accent-color: #8d6e63;
+    --text-dark: #212121;
+    --text-light: #f5f5f5;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    color: var(--text-dark);
+    background-color: #fafafa;
+}
+
+h1, h2, h3, .navbar-brand {
+    font-family: 'Playfair Display', serif;
+}
+
+.navbar {
+    background-color: var(--primary-color) !important;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+    background-color: #00332c;
+    border-color: #00332c;
+}
+
+.btn-outline-light:hover {
+    color: var(--primary-color);
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+}
+
+.hero-section {
+    background: linear-gradient(rgba(0, 77, 64, 0.8), rgba(0, 77, 64, 0.8)), url('../img/hero-bg.jpg');
+    background-size: cover;
+    background-position: center;
+    color: white;
+    padding: 100px 0;
+}
+
+.feature-icon {
+    font-size: 2.5rem;
+    color: var(--secondary-color);
+    margin-bottom: 1rem;
+}
+
+.card {
+    border: none;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    transition: transform 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+.section-padding {
+    padding: 80px 0;
+}
+
+footer {
+    background-color: #1a1a1a !important;
+}
