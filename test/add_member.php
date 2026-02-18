@@ -1,25 +1,20 @@
 <?php
+// Gray: CLI utility — add a member directly to the DB.
+// Useful for seeding test data without going through the web form.
+// Usage: php test/add_member.php --name "Full Name" --email "a@b.com"
+//            --password "secret" --phone "123" --address "addr"
+//            --next-of-kin "kin" [--status pending|approved|rejected]
+
 require_once __DIR__ . '/bootstrap.php';
+// get_arg_value() comes from bootstrap.php — removed duplicate definition
 
-// Usage:
-// php test/add_member.php --name "Full Name" --email "a@b.com" --password "secret" --phone "123" --address "addr" --next-of-kin "kin" [--status pending|approved|rejected]
-
-function get_arg_value(array $argv, $name) {
-    $flag = '--' . $name;
-    $index = array_search($flag, $argv, true);
-    if ($index === false || !isset($argv[$index + 1])) {
-        return null;
-    }
-    return $argv[$index + 1];
-}
-
-$full_name = get_arg_value($argv, 'name');
-$email = get_arg_value($argv, 'email');
+$full_name      = get_arg_value($argv, 'name');
+$email          = get_arg_value($argv, 'email');
 $password_plain = get_arg_value($argv, 'password');
-$phone = get_arg_value($argv, 'phone');
-$address = get_arg_value($argv, 'address');
-$next_of_kin = get_arg_value($argv, 'next-of-kin');
-$status = get_arg_value($argv, 'status') ?: 'pending';
+$phone          = get_arg_value($argv, 'phone');
+$address        = get_arg_value($argv, 'address');
+$next_of_kin    = get_arg_value($argv, 'next-of-kin');
+$status         = get_arg_value($argv, 'status') ?: 'pending';
 
 if (!$full_name || !$email || !$password_plain || !$phone || !$address || !$next_of_kin) {
     cli_error("Missing required arguments. See script header for usage.");
@@ -46,12 +41,11 @@ try {
 
     $id = $pdo->lastInsertId();
     cli_print_kv([
-        'status' => 'created',
-        'id' => $id,
-        'email' => $email,
+        'status'        => 'created',
+        'id'            => $id,
+        'email'         => $email,
         'member_status' => $status,
     ]);
 } catch (Exception $e) {
     cli_error("Failed to add member: " . $e->getMessage());
 }
-?>

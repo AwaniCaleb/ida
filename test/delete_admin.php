@@ -1,20 +1,12 @@
 <?php
+// Gray: CLI utility — delete an admin by ID or username.
+// Usage: php test/delete_admin.php --id 5
+//        php test/delete_admin.php --username "admin2"
+
 require_once __DIR__ . '/bootstrap.php';
+// get_arg_value() comes from bootstrap.php — removed duplicate definition
 
-// Usage:
-// php test/delete_admin.php --id 5
-// php test/delete_admin.php --username "admin2"
-
-function get_arg_value(array $argv, $name) {
-    $flag = '--' . $name;
-    $index = array_search($flag, $argv, true);
-    if ($index === false || !isset($argv[$index + 1])) {
-        return null;
-    }
-    return $argv[$index + 1];
-}
-
-$id = get_arg_value($argv, 'id');
+$id       = get_arg_value($argv, 'id');
 $username = get_arg_value($argv, 'username');
 
 if (!$id && !$username) {
@@ -32,6 +24,7 @@ try {
         $stmt = $pdo->prepare("SELECT id, username FROM admins WHERE username = ?");
         $stmt->execute([$username]);
     }
+
     $admin = $stmt->fetch();
     if (!$admin) {
         cli_error("Admin not found.");
@@ -41,11 +34,10 @@ try {
     $stmt->execute([$admin['id']]);
 
     cli_print_kv([
-        'status' => 'deleted',
-        'id' => $admin['id'],
+        'status'   => 'deleted',
+        'id'       => $admin['id'],
         'username' => $admin['username'],
     ]);
 } catch (Exception $e) {
     cli_error("Failed to delete admin: " . $e->getMessage());
 }
-?>

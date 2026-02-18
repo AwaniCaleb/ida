@@ -1,49 +1,57 @@
 <?php
+// Gray: Admin — manage executives (add / delete).
+
 require_once '../includes/functions.php';
 require_once '../includes/db.php';
 require_once '../includes/auth.php';
+require_once '../includes/validation.php';
 
 if (!isAdminLoggedIn()) {
     redirect('login.php');
 }
 
-$message = '';
+$message      = '';
 $message_type = 'info';
 
+// ── Handle ADD ───────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_exec'])) {
     if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
         die("CSRF token validation failed.");
     }
-    $name = trim($_POST['name'] ?? '');
-    $position = trim($_POST['position'] ?? '');
-    $type = trim($_POST['type'] ?? '');
-    $bio = trim($_POST['bio'] ?? '');
-    $order_weight = (int)$_POST['order_weight'];
-    $photo = '';
+
+    $name         = trim($_POST['name']          ?? '');
+    $position     = trim($_POST['position']      ?? '');
+    $type         = trim($_POST['type']          ?? '');
+    $bio          = trim($_POST['bio']           ?? '');
+    $order_weight = (int) ($_POST['order_weight'] ?? 0);
+    $photo        = '';
     $allowed_types = ['present', 'past'];
 
     if ($name === '' || !is_valid_name($name)) {
-        $message = "Error: Please enter a valid name.";
+        $message      = "Error: Please enter a valid name.";
         $message_type = 'danger';
     } elseif ($position === '') {
-        $message = "Error: Position is required.";
+        $message      = "Error: Position is required.";
         $message_type = 'danger';
     } elseif (!in_array($type, $allowed_types, true)) {
-        $message = "Error: Invalid executive type.";
+        $message      = "Error: Invalid executive type.";
         $message_type = 'danger';
     }
 
-    if (!$message && isset($_FILES['photo']) && $_FILES['photo']['error'] == 0) {
-        $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif'];
-        $file_ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
-
-        if (in_array($file_ext, $allowed_extensions)) {
+    // Gray: Photo upload — MIME check
+    if (!$message && isset($_FILES['photo']) && $_FILES['photo']['error'] == UPLOAD_ERR_OK) {
+        $upload_error = '';
+        if (is_valid_image_upload($_FILES['photo'], $upload_error)) {
+            $file_ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
             $filename = time() . '_' . bin2hex(random_bytes(4)) . '.' . $file_ext;
             if (move_uploaded_file($_FILES['photo']['tmp_name'], '../uploads/executives/' . $filename)) {
                 $photo = $filename;
+            } else {
+                $message      = "Error: Failed to save uploaded photo.";
+                $message_type = 'danger';
             }
         } else {
-            $message = "Error: Invalid image extension. Allowed: " . implode(', ', $allowed_extensions);
+            $message      = "Error: " . $upload_error;
             $message_type = 'danger';
         }
     }
@@ -51,25 +59,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_exec'])) {
     if (!$message) {
         try {
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("INSERT INTO executives (name, position, type, bio, photo, order_weight) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt = $pdo->prepare(
+                "INSERT INTO executives (name, position, type, bio, photo, order_weight)
+                 VALUES (?, ?, ?, ?, ?, ?)"
+            );
             $stmt->execute([$name, $position, $type, $bio, $photo, $order_weight]);
             $exec_id = $pdo->lastInsertId();
-            log_admin_action($pdo, $_SESSION['admin_id'], 'executive_add', 'executive', $exec_id, json_encode(['name' => $name, 'position' => $position]));
+            log_admin_action(
+                $pdo,
+                $_SESSION['admin_id'],
+                'executive_add',
+                'executive',
+                $exec_id,
+                json_encode(['name' => $name, 'position' => $position])
+            );
             $pdo->commit();
-            $message = "Executive added successfully.";
+            $message      = "Executive added successfully.";
+            $message_type = 'success';
         } catch (Exception $e) {
             $pdo->rollBack();
-            $message = "Error: " . $e->getMessage();
+            $message      = "Error: " . $e->getMessage();
             $message_type = 'danger';
         }
     }
 }
 
+// ── Handle DELETE ────────────────────────────────────────────────────────────
 if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
     if (!verifyCsrfToken($_GET['csrf_token'] ?? '')) {
         die("CSRF token validation failed.");
     }
-    $id = (int)$_GET['id'];
+
+    $id = (int) $_GET['id'];
+
     try {
         $pdo->beginTransaction();
         $stmt = $pdo->prepare("SELECT name, position, photo FROM executives WHERE id = ?");
@@ -80,8 +102,17 @@ if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id']))
         }
         $stmt = $pdo->prepare("DELETE FROM executives WHERE id = ?");
         $stmt->execute([$id]);
-        log_admin_action($pdo, $_SESSION['admin_id'], 'executive_delete', 'executive', $id, json_encode(['name' => $exec['name'], 'position' => $exec['position']]));
+        log_admin_action(
+            $pdo,
+            $_SESSION['admin_id'],
+            'executive_delete',
+            'executive',
+            $id,
+            json_encode(['name' => $exec['name'], 'position' => $exec['position']])
+        );
         $pdo->commit();
+
+        // Gray: Unlink after commit so we never orphan a DB row
         if ($exec['photo']) {
             $safe_name = basename($exec['photo']);
             $file_path = __DIR__ . '/../uploads/executives/' . $safe_name;
@@ -89,15 +120,19 @@ if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id']))
                 @unlink($file_path);
             }
         }
-        $message = "Executive removed.";
+
+        $message      = "Executive removed.";
+        $message_type = 'success';
     } catch (Exception $e) {
         $pdo->rollBack();
-        $message = "Error: " . $e->getMessage();
+        $message      = "Error: " . $e->getMessage();
         $message_type = 'danger';
     }
 }
 
-$executives = $pdo->query("SELECT * FROM executives ORDER BY type DESC, order_weight ASC")->fetchAll();
+$executives = $pdo->query(
+    "SELECT * FROM executives ORDER BY type DESC, order_weight ASC"
+)->fetchAll();
 
 include 'header.php';
 ?>
@@ -108,7 +143,9 @@ include 'header.php';
 </div>
 
 <?php if ($message): ?>
-    <div class="alert alert-<?php echo $message_type; ?>"> <?php echo htmlspecialchars($message); ?> </div>
+    <div class="alert alert-<?php echo htmlspecialchars($message_type, ENT_QUOTES, 'UTF-8'); ?>">
+        <?php echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?>
+    </div>
 <?php endif; ?>
 
 <div class="card shadow-sm">
@@ -127,12 +164,29 @@ include 'header.php';
                 <tbody>
                     <?php foreach ($executives as $exec): ?>
                         <tr>
-                            <td><img src="<?php echo $exec['photo'] ? '../uploads/executives/'.htmlspecialchars($exec['photo']) : 'https://via.placeholder.com/50'; ?>" width="40" height="40" class="rounded-circle"></td>
-                            <td><?php echo htmlspecialchars($exec['name']); ?></td>
-                            <td><?php echo htmlspecialchars($exec['position']); ?></td>
-                            <td><span class="badge <?php echo $exec['type'] == 'present' ? 'bg-success' : 'bg-secondary'; ?>"><?php echo ucfirst($exec['type']); ?></span></td>
                             <td>
-                                <a href="executives.php?action=delete&id=<?php echo $exec['id']; ?>&csrf_token=<?php echo generateCsrfToken(); ?>" class="btn btn-sm btn-danger" onclick="return confirm('Remove this executive?')"><i class="bi bi-trash"></i></a>
+                                <img
+                                    src="<?php echo $exec['photo']
+                                        ? '../uploads/executives/' . htmlspecialchars($exec['photo'], ENT_QUOTES, 'UTF-8')
+                                        : 'https://via.placeholder.com/50'; ?>"
+                                    width="40" height="40" class="rounded-circle"
+                                >
+                            </td>
+                            <td><?php echo htmlspecialchars($exec['name'],     ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td><?php echo htmlspecialchars($exec['position'], ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td>
+                                <span class="badge <?php echo $exec['type'] == 'present' ? 'bg-success' : 'bg-secondary'; ?>">
+                                    <?php echo ucfirst(htmlspecialchars($exec['type'], ENT_QUOTES, 'UTF-8')); ?>
+                                </span>
+                            </td>
+                            <td>
+                                <a
+                                    href="executives.php?action=delete&id=<?php echo (int) $exec['id']; ?>&csrf_token=<?php echo generateCsrfToken(); ?>"
+                                    class="btn btn-sm btn-danger"
+                                    onclick="return confirm('Remove this executive?')"
+                                >
+                                    <i class="bi bi-trash"></i>
+                                </a>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -142,7 +196,7 @@ include 'header.php';
     </div>
 </div>
 
-<!-- Modal -->
+<!-- Modal — unchanged from original -->
 <div class="modal fade" id="addExecModal" tabindex="-1">
     <div class="modal-dialog">
         <form action="executives.php" method="POST" enctype="multipart/form-data">

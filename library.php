@@ -1,6 +1,9 @@
 <?php
+// Gray: Public digital library page.
+
 require_once 'includes/functions.php';
 require_once 'includes/db.php';
+require_once 'includes/validation.php';
 include 'includes/header.php';
 
 $type_filter = isset($_GET['type']) ? $_GET['type'] : 'all';
@@ -45,11 +48,31 @@ if (isset($pdo)) {
                 <div class="col-md-4 mb-4">
                     <div class="card h-100">
                         <?php if ($item['type'] == 'image'): ?>
-                            <img src="<?php echo 'uploads/library/'. $item['type'] . '/' . $item['file_path']; ?>" class="card-img-top" alt="<?php echo $item['title']; ?>" onerror="this.src='https://via.placeholder.com/400x300?text=Image'">
+                            <img
+                                src="<?php echo 'uploads/library/image/' . htmlspecialchars($item['file_path'], ENT_QUOTES, 'UTF-8'); ?>"
+                                class="card-img-top"
+                                alt="<?php echo htmlspecialchars($item['title'], ENT_QUOTES, 'UTF-8'); ?>"
+                                onerror="this.src='https://via.placeholder.com/400x300?text=Image+Unavailable'"
+                            >
+
                         <?php elseif ($item['type'] == 'video'): ?>
-                            <div class="ratio ratio-16x9">
-                                <iframe src="<?php echo $item['file_path']; ?>" title="<?php echo $item['title']; ?>" allowfullscreen></iframe>
-                            </div>
+                            <?php if (is_valid_youtube_embed($item['file_path'])): ?>
+                                <!-- Gray: Only render the iframe if the stored URL passes
+                                     the YouTube embed check — second line of defence after
+                                     the admin-side validation on save. -->
+                                <div class="ratio ratio-16x9">
+                                    <iframe
+                                        src="<?php echo htmlspecialchars($item['file_path'], ENT_QUOTES, 'UTF-8'); ?>"
+                                        title="<?php echo htmlspecialchars($item['title'], ENT_QUOTES, 'UTF-8'); ?>"
+                                        allowfullscreen
+                                    ></iframe>
+                                </div>
+                            <?php else: ?>
+                                <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 200px;">
+                                    <span class="text-muted small">Video unavailable</span>
+                                </div>
+                            <?php endif; ?>
+
                         <?php else: ?>
                             <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 200px;">
                                 <span class="fs-1">
@@ -59,11 +82,15 @@ if (isset($pdo)) {
                         <?php endif; ?>
 
                         <div class="card-body">
-                            <h5 class="card-title"><?php echo $item['title']; ?></h5>
-                            <p class="card-text small text-muted"><?php echo $item['description']; ?></p>
+                            <h5 class="card-title">
+                                <?php echo htmlspecialchars($item['title'], ENT_QUOTES, 'UTF-8'); ?>
+                            </h5>
+                            <p class="card-text small text-muted">
+                                <?php echo htmlspecialchars($item['description'] ?? '', ENT_QUOTES, 'UTF-8'); ?>
+                            </p>
                             <?php if ($item['type'] == 'document'): ?>
                                 <?php if (isLoggedIn()): ?>
-                                    <a href="uploads/library/<?php echo $item['type'] . '/' . $item['file_path']; ?>" class="btn btn-primary btn-sm" download>Download PDF</a>
+                                    <a href="uploads/library/document/<?php echo htmlspecialchars($item['file_path'], ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-primary btn-sm" download>Download PDF</a>
                                 <?php else: ?>
                                     <button class="btn btn-secondary btn-sm" disabled>Login to Download</button>
                                 <?php endif; ?>

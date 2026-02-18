@@ -1,0 +1,18 @@
+# Gray: Block PHP and other server-side scripts from executing inside
+# any uploads directory. Even if someone sneaks a renamed .php file
+# past the upload validator, Apache will refuse to execute it.
+# This is the single most important server-level upload protection.
+
+<FilesMatch "\.(php|php3|php4|php5|php7|phtml|phar|shtml|cgi|pl|py|rb|asp|aspx|jsp)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block direct access to .htaccess itself
+<Files ".htaccess">
+    Order allow,deny
+    Deny from all
+</Files>
+
+# Disable directory listing
+Options -Indexes
