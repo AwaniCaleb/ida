@@ -1,98 +1,145 @@
 <?php
+// Gray: Admin — manage library items (add / delete).
+
 require_once '../includes/functions.php';
 require_once '../includes/db.php';
 require_once '../includes/auth.php';
+require_once '../includes/validation.php';
 
 if (!isAdminLoggedIn()) {
     redirect('login.php');
 }
 
-$message = '';
+$message      = '';
 $message_type = 'info';
 
+// ── Handle ADD ───────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_item'])) {
     if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
         die("CSRF token validation failed.");
     }
-    $title = trim($_POST['title'] ?? '');
-    $type = trim($_POST['type'] ?? '');
+
+    $title       = trim($_POST['title']       ?? '');
+    $type        = trim($_POST['type']        ?? '');
     $description = trim($_POST['description'] ?? '');
-    $file_path = '';
+    $file_path   = '';
     $allowed_types = ['document', 'image', 'video'];
 
     if ($title === '') {
-        $message = "Error: Title is required.";
+        $message      = "Error: Title is required.";
         $message_type = 'danger';
     } elseif (!in_array($type, $allowed_types, true)) {
-        $message = "Error: Invalid library type.";
+        $message      = "Error: Invalid library type.";
         $message_type = 'danger';
     }
 
     if (!$message && $type == 'video') {
-        $file_path = $_POST['video_url']; // Expected to be an embed URL
-        if (trim($file_path) === '') {
-            $message = "Error: Embed URL is required for video.";
+        // Gray: Validate YouTube embed URL before storing — rejects anything
+        // that isn't a proper https://www.youtube.com/embed/VIDEO_ID URL
+        $raw_url = trim($_POST['video_url'] ?? '');
+        if ($raw_url === '') {
+            $message      = "Error: Embed URL is required for video.";
             $message_type = 'danger';
+        } elseif (!is_valid_youtube_embed($raw_url)) {
+            $message      = "Error: Only YouTube embed URLs are accepted (https://www.youtube.com/embed/VIDEO_ID).";
+            $message_type = 'danger';
+        } else {
+            // sanitize_url is a second pass — belt and suspenders
+            $file_path = sanitize_url($raw_url);
         }
-    } else {
-        if (!$message && isset($_FILES['file']) && $_FILES['file']['error'] == 0) {
-            $allowed_extensions = ($type == 'document') ? ['pdf', 'doc', 'docx'] : ['jpg', 'jpeg', 'png', 'gif'];
-            $file_ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
+    }
 
-            if (in_array($file_ext, $allowed_extensions)) {
+    if (!$message && $type != 'video') {
+        if (isset($_FILES['file']) && $_FILES['file']['error'] == UPLOAD_ERR_OK) {
+            $upload_error = '';
+
+            // Gray: MIME check replaces the old extension-only check
+            if ($type == 'document') {
+                $valid = is_valid_document_upload($_FILES['file'], $upload_error);
+            } else {
+                $valid = is_valid_image_upload($_FILES['file'], $upload_error);
+            }
+
+            if ($valid) {
+                $file_ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
                 $filename = time() . '_' . bin2hex(random_bytes(4)) . '.' . $file_ext;
-                if (move_uploaded_file($_FILES['file']['tmp_name'], '../uploads/library/' . $type . '/' . $filename)) {
+                $dest     = '../uploads/library/' . $type . '/' . $filename;
+                if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
                     $file_path = $filename;
+                } else {
+                    $message      = "Error: Failed to save uploaded file.";
+                    $message_type = 'danger';
                 }
             } else {
-                $message = "Error: Invalid file extension. Allowed: " . implode(', ', $allowed_extensions);
+                $message      = "Error: " . $upload_error;
                 $message_type = 'danger';
             }
+        } else {
+            $message      = "Error: File upload failed or no file selected.";
+            $message_type = 'danger';
         }
     }
 
     if (!$message && $file_path) {
         try {
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("INSERT INTO library (title, type, file_path, description) VALUES (?, ?, ?, ?)");
+            $stmt = $pdo->prepare(
+                "INSERT INTO library (title, type, file_path, description)
+                 VALUES (?, ?, ?, ?)"
+            );
             $stmt->execute([$title, $type, $file_path, $description]);
             $item_id = $pdo->lastInsertId();
-            log_admin_action($pdo, $_SESSION['admin_id'], 'library_add', 'library', $item_id, json_encode(['title' => $title, 'type' => $type]));
+            log_admin_action(
+                $pdo,
+                $_SESSION['admin_id'],
+                'library_add',
+                'library',
+                $item_id,
+                json_encode(['title' => $title, 'type' => $type])
+            );
             $pdo->commit();
-            $message = "Library item added successfully.";
+            $message      = "Library item added successfully.";
+            $message_type = 'success';
         } catch (Exception $e) {
             $pdo->rollBack();
-            $message = "Error: " . $e->getMessage();
+            $message      = "Error: " . $e->getMessage();
             $message_type = 'danger';
         }
     } elseif (!$message) {
-        $message = "Error: File upload failed or URL missing.";
+        $message      = "Error: File upload failed or URL missing.";
         $message_type = 'danger';
     }
 }
 
+// ── Handle DELETE ────────────────────────────────────────────────────────────
 if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
     if (!verifyCsrfToken($_GET['csrf_token'] ?? '')) {
         die("CSRF token validation failed.");
     }
 
-    $id = (int)$_GET['id'];
+    $id = (int) $_GET['id'];
 
     try {
         $pdo->beginTransaction();
         $stmt = $pdo->prepare("SELECT title, type, file_path FROM library WHERE id = ?");
         $stmt->execute([$id]);
         $item = $stmt->fetch();
-
         if (!$item) {
             throw new Exception('Item not found.');
         }
-
         $stmt = $pdo->prepare("DELETE FROM library WHERE id = ?");
         $stmt->execute([$id]);
-        log_admin_action($pdo, $_SESSION['admin_id'], 'library_delete', 'library', $id, json_encode(['title' => $item['title'], 'type' => $item['type']]));
+        log_admin_action(
+            $pdo,
+            $_SESSION['admin_id'],
+            'library_delete',
+            'library',
+            $id,
+            json_encode(['title' => $item['title'], 'type' => $item['type']])
+        );
         $pdo->commit();
 
+        // Gray: Videos are stored as URLs — nothing to unlink
         if ($item['type'] !== 'video' && $item['file_path']) {
             $safe_name = basename($item['file_path']);
             $file_path = __DIR__ . '/../uploads/library/' . $item['type'] . '/' . $safe_name;
@@ -100,10 +147,12 @@ if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id']))
                 @unlink($file_path);
             }
         }
-        $message = "Item deleted.";
+
+        $message      = "Item deleted.";
+        $message_type = 'success';
     } catch (Exception $e) {
         $pdo->rollBack();
-        $message = "Error: " . $e->getMessage();
+        $message      = "Error: " . $e->getMessage();
         $message_type = 'danger';
     }
 }
@@ -119,8 +168,8 @@ include 'header.php';
 </div>
 
 <?php if ($message): ?>
-    <div class="alert alert-<?php echo $message_type; ?> alert-dismissible fade show" role="alert">
-        <?php echo htmlspecialchars($message); ?>
+    <div class="alert alert-<?php echo htmlspecialchars($message_type, ENT_QUOTES, 'UTF-8'); ?> alert-dismissible fade show" role="alert">
+        <?php echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?>
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
 <?php endif; ?>
@@ -140,11 +189,21 @@ include 'header.php';
                 <tbody>
                     <?php foreach ($items as $item): ?>
                         <tr>
-                            <td><?php echo htmlspecialchars($item['title']); ?></td>
-                            <td><span class="badge bg-secondary"><?php echo ucfirst($item['type']); ?></span></td>
-                            <td><?php echo date("Y-m-d", strtotime($item['created_at'])); ?></td>
+                            <td><?php echo htmlspecialchars($item['title'], ENT_QUOTES, 'UTF-8'); ?></td>
                             <td>
-                                <a href="library.php?action=delete&id=<?php echo $item['id']; ?>&csrf_token=<?php echo generateCsrfToken(); ?>" class="btn btn-sm btn-danger" onclick="return confirm('Delete this item?')"><i class="bi bi-trash"></i></a>
+                                <span class="badge bg-secondary">
+                                    <?php echo ucfirst(htmlspecialchars($item['type'], ENT_QUOTES, 'UTF-8')); ?>
+                                </span>
+                            </td>
+                            <td><?php echo htmlspecialchars(date("Y-m-d", strtotime($item['created_at'])), ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td>
+                                <a
+                                    href="library.php?action=delete&id=<?php echo (int) $item['id']; ?>&csrf_token=<?php echo generateCsrfToken(); ?>"
+                                    class="btn btn-sm btn-danger"
+                                    onclick="return confirm('Delete this item?')"
+                                >
+                                    <i class="bi bi-trash"></i>
+                                </a>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -154,7 +213,7 @@ include 'header.php';
     </div>
 </div>
 
-<!-- Add Item Modal -->
+<!-- Add Item Modal — layout unchanged from original -->
 <div class="modal fade" id="addItemModal" tabindex="-1">
     <div class="modal-dialog">
         <form action="library.php" method="POST" enctype="multipart/form-data">
@@ -200,10 +259,11 @@ include 'header.php';
 </div>
 
 <script>
+// Gray: Toggle between file upload input and URL input based on selected type
 function toggleInputs() {
-    const type = document.getElementById('typeSelect').value;
+    const type      = document.getElementById('typeSelect').value;
     const fileInput = document.getElementById('fileInput');
-    const urlInput = document.getElementById('urlInput');
+    const urlInput  = document.getElementById('urlInput');
 
     if (type === 'video') {
         fileInput.classList.add('d-none');

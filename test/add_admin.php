@@ -1,19 +1,11 @@
 <?php
+// Gray: CLI utility — add an admin account directly to the DB.
+// Usage: php test/add_admin.php --username "admin2" --password "secret"
+
 require_once __DIR__ . '/bootstrap.php';
+// get_arg_value() comes from bootstrap.php — removed duplicate definition
 
-// Usage:
-// php test/add_admin.php --username "admin2" --password "secret"
-
-function get_arg_value(array $argv, $name) {
-    $flag = '--' . $name;
-    $index = array_search($flag, $argv, true);
-    if ($index === false || !isset($argv[$index + 1])) {
-        return null;
-    }
-    return $argv[$index + 1];
-}
-
-$username = get_arg_value($argv, 'username');
+$username       = get_arg_value($argv, 'username');
 $password_plain = get_arg_value($argv, 'password');
 
 if (!$username || !$password_plain) {
@@ -33,11 +25,10 @@ try {
 
     $id = $pdo->lastInsertId();
     cli_print_kv([
-        'status' => 'created',
-        'id' => $id,
+        'status'   => 'created',
+        'id'       => $id,
         'username' => $username,
     ]);
 } catch (Exception $e) {
     cli_error("Failed to add admin: " . $e->getMessage());
 }
-?>
